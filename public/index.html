@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quick Canvas Login</title>
+    <title>Canvas API Explorer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,24 +15,35 @@
         .gradient-bg {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         }
-        input:focus {
+        input:focus, textarea:focus {
             outline: none;
             box-shadow: 0 0 0 2px #c4b5fd; /* Tailwind violet-300 */
+        }
+        .result-box {
+            background-color: #f9fafb; /* Tailwind gray-50 */
+            border: 1px solid #e5e7eb; /* Tailwind gray-200 */
+            border-radius: 0.5rem; /* rounded-lg */
+            padding: 1rem; /* p-4 */
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap; /* Allows text to wrap */
+            word-break: break-all; /* Breaks long words to prevent overflow */
         }
     </style>
 </head>
 <body class="gradient-bg flex items-center justify-center min-h-screen p-4">
-    <div class="bg-white p-8 sm:p-10 rounded-xl shadow-2xl w-full max-w-md">
+    <div class="bg-white p-8 sm:p-10 rounded-xl shadow-2xl w-full max-w-lg">
         <div class="text-center mb-8">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mx-auto mb-4 text-indigo-600">
-                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
-                <line x1="4" y1="22" x2="4" y2="15"></line>
+                <path d="M12 2a10 10 0 1 0 10 10H12V2z"></path>
+                <path d="M12 12a5 5 0 0 0-5 5h10a5 5 0 0 0-5-5z"></path>
+                <path d="M12 22a10 10 0 0 0 10-10"></path>
             </svg>
-            <h1 class="text-3xl font-bold text-gray-800">Quick Canvas Login</h1>
-            <p class="text-gray-600 mt-2">Enter your Canvas domain to get started.</p>
+            <h1 class="text-3xl font-bold text-gray-800">Canvas API Explorer</h1>
+            <p class="text-gray-600 mt-2">Enter your Canvas domain and API token to fetch your profile.</p>
         </div>
 
-        <form id="canvasLoginForm" action="/login-redirect" method="POST" class="space-y-6">
+        <form id="canvasApiForm" class="space-y-6">
             <div>
                 <label for="canvas_domain" class="block text-sm font-medium text-gray-700 mb-1">
                     Canvas Domain
@@ -40,21 +51,49 @@
                 <input type="text" name="canvas_domain" id="canvas_domain"
                        class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
                        placeholder="e.g., yourcollege.instructure.com" required>
-                <p id="error-message" class="text-red-500 text-sm mt-1 hidden"></p>
             </div>
 
             <div>
-                <button type="submit"
-                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out">
-                    Go to Canvas
+                <label for="api_token" class="block text-sm font-medium text-gray-700 mb-1">
+                    Canvas API Token
+                </label>
+                <textarea name="api_token" id="api_token" rows="3"
+                       class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 ease-in-out"
+                       placeholder="Paste your API token here" required></textarea>
+                <p class="text-xs text-gray-500 mt-1">You can generate this token in your Canvas account settings.</p>
+            </div>
+
+            <div>
+                <button type="submit" id="submitButton"
+                        class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out flex items-center justify-center">
+                    Fetch My Canvas Profile
                 </button>
             </div>
         </form>
 
+        <div id="loadingIndicator" class="text-center my-4 hidden">
+            <svg class="animate-spin h-8 w-8 text-indigo-600 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p class="text-gray-600 mt-2">Fetching data...</p>
+        </div>
+        
+        <div id="resultsContainer" class="mt-8">
+            <h3 class="text-xl font-semibold text-gray-700 mb-3 hidden" id="resultsTitle">API Response:</h3>
+            <div id="errorMessage" class="hidden p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg" role="alert">
+                <span class="font-medium">Error:</span> <span id="errorMessageText"></span>
+            </div>
+            <div id="successMessage" class="hidden p-4 mb-4 text-sm text-green-700 bg-green-100 rounded-lg" role="alert">
+                <span class="font-medium">Success!</span> <span id="successMessageText"></span>
+            </div>
+            <pre id="apiResponse" class="result-box hidden"></pre>
+        </div>
+
         <div class="mt-8 text-center">
             <p class="text-xs text-gray-500">
-                We'll remember your Canvas domain in your browser for next time.
-                This site redirects to your official Canvas login and does not handle your credentials.
+                Your Canvas domain and API token are saved in your browser's local storage for convenience.
+                This site does not store your credentials on a server.
             </p>
         </div>
     </div>
