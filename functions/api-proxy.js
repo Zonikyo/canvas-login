@@ -31,7 +31,6 @@ export async function onRequestPost(context) {
       fullCanvasUrl = `https://${fullCanvasUrl}`;
     }
 
-    // Ensure target_endpoint starts with a slash
     const cleanTargetEndpoint = target_endpoint.startsWith('/') ? target_endpoint : `/${target_endpoint}`;
     const fullApiUrl = `${fullCanvasUrl}${cleanTargetEndpoint}`;
 
@@ -50,13 +49,23 @@ export async function onRequestPost(context) {
 
     const canvasResponse = await fetch(fullApiUrl, requestOptions);
 
-    // Handle different response types from Canvas
     const contentType = canvasResponse.headers.get("content-type");
     const responseStatus = canvasResponse.status;
+    const linkHeaderFromCanvas = canvasResponse.headers.get("link");
+
+    let workerResponseHeaders = { 
+      'Content-Type': 'application/json',
+      'Access-Control-Expose-Headers': 'Link' // Expose the Link header to the client
+    };
+
+    if (linkHeaderFromCanvas) {
+      workerResponseHeaders['Link'] = linkHeaderFromCanvas;
+    }
 
     if (responseStatus === 204) { // No Content
-      return new Response(null, { // Return null body but with 204 status
-        status: 204
+      return new Response(null, {
+        status: 204,
+        headers: workerResponseHeaders // Include Link header even for 204 if present
       });
     }
     
@@ -64,34 +73,25 @@ export async function onRequestPost(context) {
     if (contentType && contentType.includes("application/json")) {
         responseData = await canvasResponse.json();
     } else {
-        // If not JSON, try to read as text. This might be an HTML error page from Canvas.
         responseData = await canvasResponse.text();
     }
 
-    // Forward the status and data from Canvas
-    // Ensure the worker response also has a JSON content type if sending JSON
-    let workerResponseHeaders = { 'Content-Type': 'application/json' };
     if (!(contentType && contentType.includes("application/json")) && typeof responseData === 'string') {
-        // If Canvas returned non-JSON, and we're sending it as a string,
-        // it's better to set content type to text/plain for the client,
-        // or wrap it in a JSON object if the client always expects JSON.
-        // For simplicity here, we'll still wrap it in a JSON structure if it's an error.
         if (!canvasResponse.ok) {
             responseData = { error: "Canvas API returned non-JSON error", details: responseData.substring(0, 500) };
         } else {
-             // If it was a success but not JSON, this is unusual.
-             // The client-side apiService expects JSON, so we should indicate an issue.
-             if (responseStatus === 200) { // Successful but not JSON
+             if (responseStatus === 200) { 
                 return new Response(JSON.stringify({ error: "Received non-JSON success response from Canvas", data: responseData.substring(0,500)}), {
-                    status: 502, // Bad Gateway - upstream format error
-                    headers: workerResponseHeaders
+                    status: 502, 
+                    headers: workerResponseHeaders 
                 });
              }
-             // For other non-JSON success, just pass text
-             workerResponseHeaders = { 'Content-Type': 'text/plain' };
+             // For other non-JSON success (e.g., 201, 202 with text body), responseData is already the text.
+             // It will be JSON.stringified below. The client will parse it back to a string.
+             // If a different Content-Type is desired for this specific case, it could be set here.
+             // For now, it defaults to application/json as per workerResponseHeaders.
         }
     }
-
 
     return new Response(JSON.stringify(responseData), {
       status: responseStatus,
@@ -107,19 +107,17 @@ export async function onRequestPost(context) {
   }
 }
 
-// Handle other methods if necessary, or return 405 Method Not Allowed
 export async function onRequest(context) {
   if (context.request.method === "POST") {
     return await onRequestPost(context);
   }
-  // Optionally handle GET for a health check or info
   if (context.request.method === "GET") {
     return new Response(JSON.stringify({ message: "API Proxy is active. Use POST to make requests to Canvas API."}), {
         status: 200,
         headers: { 'Content-Type': 'application/json' }
     });
   }
-  return new Response(JSON.stringify({ error: "Method not allowed. Only POST requests are accepted to this proxy endpoint." }), {
+  return new Response(JSON.stringify({ error: "Method not allowed. Only POST, GET requests are accepted to this proxy endpoint." }), {
     status: 405,
     headers: { "Content-Type": "application/json", 'Allow': 'POST, GET' },
   });
